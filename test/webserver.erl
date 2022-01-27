@@ -24,7 +24,7 @@
 %%% ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 %%% ----------------------------------------------------------------------------
 
-%%% @author Oscar Hellström <oscar@hellstrom.st>
+%%% @author Oscar Hellstrom <oscar@hellstrom.st>
 %%% @author Magnus Henoch <magnus@erlang-consulting.com>
 %%% @doc Simple web server for testing purposes
 %%% @end
@@ -117,7 +117,7 @@ listen(ssl) ->
         binary,
         {active, false},
         {ip, {127,0,0,1}},
-        {verify,0},
+        {verify, verify_none},
         {keyfile, "../test/key.pem"},
         {certfile, "../test/crt.pem"}
     ],
@@ -134,8 +134,8 @@ listen(Module) ->
 
 accept(ssl, ListenSocket) ->
     {ok, Socket} = ssl:transport_accept(ListenSocket, 10000),
-    ok = ssl:ssl_accept(Socket),
-    Socket;
+    {ok, Socket1} = ssl:handshake(Socket),
+    Socket1;
 accept(Module, ListenSocket) ->
     {ok, Socket} = Module:accept(ListenSocket, 1000),
     Socket.

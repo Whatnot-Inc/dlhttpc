@@ -11,6 +11,9 @@ erl_crash.dump
 /config/production/*.bert
 .eunit
 .rebar
+_build
+.direnv
+.envrc
 
 doc/edoc-info
 doc/*.html

@@ -1,4 +1,3 @@
-%% coding: latin-1
 %%% ----------------------------------------------------------------------------
 %%% Copyright (c) 2009, Erlang Training and Consulting Ltd.
 %%% Copyright (c) 2012, Frederic Trottier-Hebert
@@ -27,7 +26,7 @@
 %%% ----------------------------------------------------------------------------
 
 %%% @private
-%%% @author Oscar Hellström <oscar@hellstrom.st>
+%%% @author Oscar Hellstrom <oscar@hellstrom.st>
 %%% @author Fred Hebert <mononcqc@ferd.ca>
 %%% @doc
 %%% This module implements the HTTP request handling. This should normally
@@ -86,10 +85,10 @@ request(ReqId, From, Host, Port, Ssl, Path, Method, Hdrs, Body, Options) ->
     catch
         Reason ->
             {response, ReqId, self(), {error, Reason}};
-        error:closed ->
+        error:closed:_ ->
             {response, ReqId, self(), {error, connection_closed}};
-        error:Error ->
-            {exit, ReqId, self(), {Error, erlang:get_stacktrace()}}
+        error:Error:Stacktrace ->
+            {exit, ReqId, self(), {Error, Stacktrace}}
     end,
     case Result of
         {response, _, _, {ok, {no_return, _}}} -> ok;

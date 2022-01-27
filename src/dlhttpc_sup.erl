@@ -26,7 +26,7 @@
 %%% ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 %%% ----------------------------------------------------------------------------
 
-%%% @author Oscar Hellström <oscar@hellstrom.st>
+%%% @author Oscar Hellstrom <oscar@hellstrom.st>
 %%% @author Fred Hebert <mononcqc@ferd.ca>
 %%% @doc Top supervisor for the dlhttpc application.
 %%% This is normally started by the application behaviour implemented in

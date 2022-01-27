@@ -24,7 +24,7 @@
 %%% ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 %%% ----------------------------------------------------------------------------
 
-%%% @author Oscar Hellström <oscar@hellstrom.st>
+%%% @author Oscar Hellstrom <oscar@hellstrom.st>
 -module(dlhttpc_tests).
 
 -export([test_no/2]).
@@ -99,9 +99,9 @@ test_no(N, Tests) ->
 %%% Eunit setup stuff
 
 start_app() ->
-    application:start(crypto),
-    application:start(public_key),
-    ok = application:start(ssl),
+    {ok, _} = application:ensure_all_started(ssl),
+    {ok, _} = application:ensure_all_started(dispcount),
+    %% application:set_env(dlhttpc, maxr, 1, [{persistent, true}]),
     ok = dlhttpc:start().
 
 stop_app(_) ->
@@ -134,8 +134,6 @@ tcp_test_() ->
                 ?_test(bad_url()),
                 ?_test(persistent_connection()),
                 ?_test(request_timeout()),
-                ?_test(connection_timeout()),
-                ?_test(suspended_manager()),
                 ?_test(chunked_encoding()),
                 ?_test(partial_upload_identity()),
                 ?_test(partial_upload_identity_iolist()),
@@ -152,8 +150,7 @@ tcp_test_() ->
                 ?_test(partial_download_smallish_chunks()),
                 ?_test(partial_download_slow_chunks()),
                 ?_test(close_connection()),
-                ?_test(message_queue()),
-                ?_test(connection_count()) % just check that it's 0 (last)
+                ?_test(message_queue())
             ]}
     }.
 
@@ -162,8 +159,9 @@ ssl_test_() ->
         {setup, fun start_app/0, fun stop_app/1, [
                 ?_test(ssl_get()),
                 ?_test(ssl_post()),
-                ?_test(ssl_chunked()),
-                ?_test(connection_count()) % just check that it's 0 (last)
+                ?_test(ssl_post_with_no_peer_verify()),
+                ?_test(ssl_post_with_invalid_connect_option()),
+                ?_test(ssl_chunked())
             ]}
     }.
 
@@ -306,8 +304,8 @@ pre_1_1_server_keep_alive() ->
         ]),
     URL = url(Port, "/close"),
     Body = pid_to_list(self()),
-    {ok, Response1} = dlhttpc:request(URL, get, [], [], 1000),
-    {ok, Response2} = dlhttpc:request(URL, put, [], Body, 1000),
+    {ok, Response1} = dlhttpc:request(URL, get, [], [], 2000, [{max_connections, 1}]),
+    {ok, Response2} = dlhttpc:request(URL, put, [], Body, 2000, [{max_connections, 1}]),
     ?assertEqual({200, "OK"}, status(Response1)),
     ?assertEqual({200, "OK"}, status(Response2)),
     ?assertEqual(<<?DEFAULT_STRING>>, body(Response1)),
@@ -315,6 +313,7 @@ pre_1_1_server_keep_alive() ->
     % Wait for the server to see that socket has been closed.
     % The socket should be closed by us since the server responded with a
     % 1.0 version, and not the Connection: keep-alive header.
+    timer:sleep(1000),
     receive closed -> ok end.
 
 simple_put() ->
@@ -363,10 +362,10 @@ persistent_connection() ->
             fun copy_body/5
         ]),
     URL = url(Port, "/persistent"),
-    {ok, FirstResponse} = dlhttpc:request(URL, "GET", [], 1000),
+    {ok, FirstResponse} = dlhttpc:request(URL, "GET", [], [], 1000, [{max_connections, 1}]),
     Headers = [{"KeepAlive", "300"}], % shouldn't be needed
-    {ok, SecondResponse} = dlhttpc:request(URL, "GET", Headers, 1000),
-    {ok, ThirdResponse} = dlhttpc:request(URL, "POST", [], 1000),
+    {ok, SecondResponse} = dlhttpc:request(URL, "GET", Headers, [], 1000, [{max_connections, 1}]),
+    {ok, ThirdResponse} = dlhttpc:request(URL, "POST", [], [], 1000, [{max_connections, 1}]),
     ?assertEqual({200, "OK"}, status(FirstResponse)),
     ?assertEqual(<<?DEFAULT_STRING>>, body(FirstResponse)),
     ?assertEqual({200, "OK"}, status(SecondResponse)),
@@ -379,43 +378,15 @@ request_timeout() ->
     URL = url(Port, "/slow"),
     ?assertEqual({error, timeout}, dlhttpc:request(URL, get, [], 50)).
 
-connection_timeout() ->
-    Port = start(gen_tcp, [fun simple_response/5, fun simple_response/5]),
-    URL = url(Port, "/close_conn"),
-    dlhttpc_manager:update_connection_timeout(50), % very short keep alive
-    {ok, Response} = dlhttpc:request(URL, get, [], 100),
-    ?assertEqual({200, "OK"}, status(Response)),
-    ?assertEqual(<<?DEFAULT_STRING>>, body(Response)),
-    timer:sleep(100),
-    ?assertEqual(0,
-        dlhttpc_manager:connection_count({"localhost", Port, false})),
-    dlhttpc_manager:update_connection_timeout(300000). % set back
-
-suspended_manager() ->
-    Port = start(gen_tcp, [fun simple_response/5, fun simple_response/5]),
-    URL = url(Port, "/persistent"),
-    {ok, FirstResponse} = dlhttpc:request(URL, get, [], 50),
-    ?assertEqual({200, "OK"}, status(FirstResponse)),
-    ?assertEqual(<<?DEFAULT_STRING>>, body(FirstResponse)),
-    Pid = whereis(dlhttpc_manager),
-    true = erlang:suspend_process(Pid),
-    ?assertEqual({error, timeout}, dlhttpc:request(URL, get, [], 50)),
-    true = erlang:resume_process(Pid),
-    ?assertEqual(1,
-        dlhttpc_manager:connection_count({"localhost", Port, false})),
-    {ok, SecondResponse} = dlhttpc:request(URL, get, [], 50),
-    ?assertEqual({200, "OK"}, status(SecondResponse)),
-    ?assertEqual(<<?DEFAULT_STRING>>, body(SecondResponse)).
-
 chunked_encoding() ->
     Port = start(gen_tcp, [fun chunked_response/5, fun chunked_response_t/5]),
     URL = url(Port, "/chunked"),
-    {ok, FirstResponse} = dlhttpc:request(URL, get, [], 50),
+    {ok, FirstResponse} = dlhttpc:request(URL, get, [], [], 50, [{max_connections, 1}]),
     ?assertEqual({200, "OK"}, status(FirstResponse)),
     ?assertEqual(<<?DEFAULT_STRING>>, body(FirstResponse)),
     ?assertEqual("chunked", dlhttpc_lib:header_value("transfer-encoding",
             headers(FirstResponse))),
-    {ok, SecondResponse} = dlhttpc:request(URL, get, [], 50),
+    {ok, SecondResponse} = dlhttpc:request(URL, get, [], [], 50, [{max_connections, 1}]),
     ?assertEqual({200, "OK"}, status(SecondResponse)),
     ?assertEqual(<<"Again, great success!">>, body(SecondResponse)),
     ?assertEqual("ChUnKeD", dlhttpc_lib:header_value("transfer-encoding",
@@ -430,7 +401,7 @@ partial_upload_identity() ->
     URL = url(Port, "/partial_upload"),
     Body = [<<"This">>, <<" is ">>, <<"chunky">>, <<" stuff!">>],
     Hdrs = [{"Content-Length", integer_to_list(iolist_size(Body))}],
-    Options = [{partial_upload, 1}],
+    Options = [{max_connections, 1}, {partial_upload, 1}],
     {ok, UploadState1} = dlhttpc:request(URL, post, Hdrs, hd(Body), 1000, Options),
     Response1 = lists:foldl(fun upload_parts/2, UploadState1,
         tl(Body) ++ [http_eob]),
@@ -453,7 +424,7 @@ partial_upload_identity_iolist() ->
     Body = ["This", [<<" ">>, $i, $s, [" "]], <<"chunky">>, [<<" stuff!">>]],
     Hdrs = [{"Content-Length", integer_to_list(iolist_size(Body))}],
     Options = [{partial_upload, 1}],
-    {ok, UploadState1} = dlhttpc:request(URL, post, Hdrs, hd(Body), 1000, Options),
+    {ok, UploadState1} = dlhttpc:request(URL, post, Hdrs, hd(Body), 1000, [{max_connections, 1}|Options]),
     Response1 = lists:foldl(fun upload_parts/2, UploadState1,
         tl(Body) ++ [http_eob]),
     ?assertEqual({200, "OK"}, status(Response1)),
@@ -461,7 +432,7 @@ partial_upload_identity_iolist() ->
     ?assertEqual("This is chunky stuff!",
         dlhttpc_lib:header_value("x-test-orig-body", headers(Response1))),
     % Make sure it works with no body part in the original request as well
-    {ok, UploadState2} = dlhttpc:request(URL, post, Hdrs, [], 1000, Options),
+    {ok, UploadState2} = dlhttpc:request(URL, post, Hdrs, [], 1000, [{max_connections, 1}|Options]),
     Response2 = lists:foldl(fun upload_parts/2, UploadState2,
         Body ++ [http_eob]),
     ?assertEqual({200, "OK"}, status(Response2)),
@@ -473,7 +444,7 @@ partial_upload_chunked() ->
     Port = start(gen_tcp, [fun chunked_upload/5, fun chunked_upload/5]),
     URL = url(Port, "/partial_upload_chunked"),
     Body = ["This", [<<" ">>, $i, $s, [" "]], <<"chunky">>, [<<" stuff!">>]],
-    Options = [{partial_upload, 1}],
+    Options = [{max_connections, 1}, {partial_upload, 1}],
     {ok, UploadState1} = dlhttpc:request(URL, post, [], hd(Body), 1000, Options),
     Trailer = {"X-Trailer-1", "my tail is tailing me...."},
     {ok, Response1} = dlhttpc:send_trailers(
@@ -484,7 +455,7 @@ partial_upload_chunked() ->
     ?assertEqual(<<?DEFAULT_STRING>>, body(Response1)),
     ?assertEqual("This is chunky stuff!",
         dlhttpc_lib:header_value("x-test-orig-body", headers(Response1))),
-    ?assertEqual(element(2, Trailer), 
+    ?assertEqual(element(2, Trailer),
         dlhttpc_lib:header_value("x-test-orig-trailer-1", headers(Response1))),
     % Make sure it works with no body part in the original request as well
     Headers = [{"Transfer-Encoding", "chunked"}],
@@ -497,7 +468,7 @@ partial_upload_chunked() ->
     ?assertEqual(<<?DEFAULT_STRING>>, body(Response2)),
     ?assertEqual("This is chunky stuff!",
         dlhttpc_lib:header_value("x-test-orig-body", headers(Response2))),
-    ?assertEqual(element(2, Trailer), 
+    ?assertEqual(element(2, Trailer),
         dlhttpc_lib:header_value("x-test-orig-trailer-1", headers(Response2))).
 
 partial_upload_chunked_no_trailer() ->
@@ -647,7 +618,7 @@ close_connection() ->
 ssl_get() ->
     Port = start(ssl, [fun simple_response/5]),
     URL = ssl_url(Port, "/simple"),
-    {ok, Response} = dlhttpc:request(URL, "GET", [], 1000),
+    {ok, Response} = dlhttpc:request(URL, "GET", [], [], 1000, [{max_connections, 1}]),
     ?assertEqual({200, "OK"}, status(Response)),
     ?assertEqual(<<?DEFAULT_STRING>>, body(Response)).
 
@@ -656,21 +627,44 @@ ssl_post() ->
     URL = ssl_url(Port, "/simple"),
     Body = "SSL Test <o/",
     BinaryBody = list_to_binary(Body),
-    {ok, Response} = dlhttpc:request(URL, "POST", [], Body, 1000),
+    {ok, Response} = dlhttpc:request(URL, "POST", [], Body, 1000, [{max_connections, 1}]),
     ?assertEqual({200, "OK"}, status(Response)),
     ?assertEqual(BinaryBody, body(Response)).
+
+ssl_post_with_no_peer_verify() ->
+    Port = start(ssl, [fun copy_body/5]),
+    URL = ssl_url(Port, "/simple"),
+    Body = "SSL Test <o/",
+    BinaryBody = list_to_binary(Body),
+    {ok, Response} = dlhttpc:request(URL, "POST", [], Body, 1000, [{connect_options, [{verify, verify_none}]},
+                                                                   {max_connections, 1}]),
+    ?assertEqual({200, "OK"}, status(Response)),
+    ?assertEqual(BinaryBody, body(Response)).
+
+ssl_post_with_invalid_connect_option() ->
+    Port = start(ssl, [fun copy_body/5]),
+    URL = ssl_url(Port, "/simple"),
+    Body = "SSL Test <o/",
+    BinaryBody = list_to_binary(Body),
+    Error =
+     dlhttpc:request(URL, "POST", [], Body, 1000, [{connect_options, [{verify, silly_option}]},
+                                                                   {max_connections, 1}]),
+    ?assertEqual({error,{options,{verify,silly_option}}}, Error).
+
 
 ssl_chunked() ->
     Port = start(ssl, [fun chunked_response/5, fun chunked_response_t/5]),
     URL = ssl_url(Port, "/ssl_chunked"),
-    FirstResult = dlhttpc:request(URL, get, [], 100),
+    Options = [{max_connections, 1}],
+    FirstResult = dlhttpc:request(URL, get, [], [], 100, Options),
     ?assertMatch({ok, _}, FirstResult),
     {ok, FirstResponse} = FirstResult,
     ?assertEqual({200, "OK"}, status(FirstResponse)),
     ?assertEqual(<<?DEFAULT_STRING>>, body(FirstResponse)),
     ?assertEqual("chunked", dlhttpc_lib:header_value("transfer-encoding",
             headers(FirstResponse))),
-    SecondResult = dlhttpc:request(URL, get, [], 100),
+    timer:sleep(500),
+    SecondResult = dlhttpc:request(URL, get, [], [], 100, Options),
     {ok, SecondResponse} = SecondResult,
     ?assertEqual({200, "OK"}, status(SecondResponse)),
     ?assertEqual(<<"Again, great success!">>, body(SecondResponse)),
@@ -681,9 +675,6 @@ ssl_chunked() ->
     ?assertEqual("2", dlhttpc_lib:header_value("Trailer-2",
             headers(SecondResponse))).
 
-connection_count() ->
-    timer:sleep(50), % give the TCP stack time to deliver messages
-    ?assertEqual(0, dlhttpc_manager:connection_count()).
 
 invalid_options() ->
     ?assertError({bad_options, [{foo, bar}, bad_option]},

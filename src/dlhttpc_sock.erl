@@ -27,7 +27,7 @@
 %%% ----------------------------------------------------------------------------
 
 %%% @private
-%%% @author Oscar Hellström <oscar@hellstrom.st>
+%%% @author Oscar Hellstrom <oscar@hellstrom.st>
 %%% @author Fred Hebert <mononcqc@ferd.ca>
 %%% @doc
 %%% This module implements wrappers for socket operations.
