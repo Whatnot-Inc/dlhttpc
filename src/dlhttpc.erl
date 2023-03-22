@@ -183,7 +183,13 @@ request(URL, Method, Hdrs, Body, Timeout) ->
 -spec request(string(), string() | atom(), headers(), iolist(),
         pos_integer() | infinity, [option()]) -> result().
 request(URL, Method, Hdrs, Body, Timeout, Options) ->
-    {Host, Port, Path, Ssl} = dlhttpc_lib:parse_url(URL),
+    {Host, Port, Path, Ssl} = case proplists:get_value(proxy, Options) of
+      undefined ->
+        dlhttpc_lib:parse_url(URL);
+      ProxyURL ->
+        {ProxyHost, ProxyPort, _, Ssl1} = dlhttpc_lib:parse_url(ProxyURL),
+        {ProxyHost, ProxyPort, URL, Ssl1}
+    end,
     request(Host, Port, Ssl, Path, Method, Hdrs, Body, Timeout, Options).
 
 %% @spec (Host, Port, Ssl, Path, Method, Hdrs, RequestBody, Timeout, Options) ->
@@ -602,6 +608,8 @@ verify_options([{partial_download, DownloadOptions} | Options], Errors)
 verify_options([{connect_options, List} | Options], Errors)
         when is_list(List) ->
     verify_options(Options, Errors);
+verify_options([{proxy, ProxyURL} | Options], Errors) when is_list(ProxyURL) ->
+  verify_options(Options, Errors);
 verify_options([{stream_to, Pid} | Options], Errors) when is_pid(Pid) ->
     verify_options(Options, Errors);
 verify_options([Option | Options], Errors) ->
