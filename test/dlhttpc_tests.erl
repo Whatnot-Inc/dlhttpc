@@ -150,6 +150,8 @@ tcp_test_() ->
                 ?_test(partial_download_smallish_chunks()),
                 ?_test(partial_download_slow_chunks()),
                 ?_test(close_connection()),
+                ?_test(proxy_request()),
+                ?_test(proxy_request_with_port()),
                 ?_test(message_queue())
             ]}
     }.
@@ -615,6 +617,24 @@ close_connection() ->
     ?assertEqual({error, connection_closed}, dlhttpc:request(URL, "GET", [],
             1000)).
 
+proxy_request() ->
+    Port = start(gen_tcp, [fun simple_response/5]),
+    URL = "http://httpbin.org/get",
+    {ok, Response} = dlhttpc:request(URL, "GET", [], "", 1000, [{proxy, url(Port, "/")}]),
+    ?assertEqual({200, "OK"}, status(Response)),
+    ?assertEqual(<<?DEFAULT_STRING>>, body(Response)),
+    ?assertEqual("http://httpbin.org/get",
+        dlhttpc_lib:header_value("x-test-orig-uri", headers(Response))).
+
+proxy_request_with_port() ->
+    Port = start(gen_tcp, [fun simple_response/5]),
+    URL = "http://httpbin.org:80/get",
+    {ok, Response} = dlhttpc:request(URL, "GET", [], "", 1000, [{proxy, url(Port, "/")}]),
+    ?assertEqual({200, "OK"}, status(Response)),
+    ?assertEqual(<<?DEFAULT_STRING>>, body(Response)),
+    ?assertEqual("http://httpbin.org:80/get",
+        dlhttpc_lib:header_value("x-test-orig-uri", headers(Response))).
+
 ssl_get() ->
     Port = start(ssl, [fun simple_response/5]),
     URL = ssl_url(Port, "/simple"),
@@ -732,12 +752,22 @@ headers({_, Headers, _}) ->
     Headers.
 
 %%% Responders
-simple_response(Module, Socket, _Request, _Headers, Body) ->
+simple_response(Module, Socket, Request, _Headers, Body) ->
+    {http_request, _, Uri, _} = Request,
+    Path = case Uri of
+             {abs_path, Path1} ->
+               Path1;
+             {absoluteURI, Scheme, Host, undefined, Path1} ->
+               atom_to_list(Scheme) ++ "://" ++ Host ++ Path1;
+             {absoluteURI, Scheme, Host, Port, Path1} ->
+               atom_to_list(Scheme) ++ "://" ++ Host ++ ":" ++ integer_to_list(Port) ++ Path1
+           end,
     Module:send(
         Socket,
         [
             "HTTP/1.1 200 OK\r\n"
             "Content-type: text/plain\r\nContent-length: 14\r\n"
+            "X-Test-Orig-Uri: ", Path, "\r\n"
             "X-Test-Orig-Body: ", Body, "\r\n\r\n"
             ?DEFAULT_STRING
         ]
