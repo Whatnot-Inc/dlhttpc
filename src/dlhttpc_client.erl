@@ -112,12 +112,13 @@ execute(ReqId, From, Host, Port, Ssl, Path, Method, Hdrs, Body, Options) ->
         Hdrs, Host, Port, Body, PartialUpload),
     ConnectOptions = proplists:get_value(connect_options, Options, []),
     SockOpts = [binary, {packet, http}, {active, false} | ConnectOptions],
+    PoolName = proplists:get_value(pool_name, Options, default),
     {SocketRef, Socket} =
         case MaxConnections of
             bypass ->
                 {undefined, undefined};
             Number when is_integer(Number) ->
-                case dlhttpc_disp:checkout(Host, Port, Ssl, MaxConnections, ConnectionTimeout, SockOpts, CheckoutRetry) of
+                case dlhttpc_disp:checkout(Host, Port, Ssl, MaxConnections, ConnectionTimeout, SockOpts, CheckoutRetry, PoolName) of
                     {ok, Ref, S} -> {Ref, S}; % Re-using HTTP/1.1 connections
                     {error, CheckoutErr} -> throw(CheckoutErr)
                 end

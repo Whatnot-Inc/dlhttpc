@@ -152,6 +152,7 @@ tcp_test_() ->
                 ?_test(close_connection()),
                 ?_test(proxy_request()),
                 ?_test(proxy_request_with_port()),
+                ?_test(non_default_pool_name_request()),
                 ?_test(message_queue())
             ]}
     }.
@@ -634,6 +635,13 @@ proxy_request_with_port() ->
     ?assertEqual(<<?DEFAULT_STRING>>, body(Response)),
     ?assertEqual("http://httpbin.org:80/get",
         dlhttpc_lib:header_value("x-test-orig-uri", headers(Response))).
+
+non_default_pool_name_request() ->
+    Port = start(gen_tcp, [fun simple_response/5]),
+    URL = url(Port,"/simple"),
+    {ok, Response} = dlhttpc:request(URL, "GET", [], "", 1000, [{pool_name, non_default}]),
+    ?assertEqual({200, "OK"}, status(Response)),
+    ?assertEqual(<<?DEFAULT_STRING>>, body(Response)).
 
 ssl_get() ->
     Port = start(ssl, [fun simple_response/5]),
