@@ -612,6 +612,8 @@ verify_options([{proxy, ProxyURL} | Options], Errors) when is_list(ProxyURL) ->
   verify_options(Options, Errors);
 verify_options([{stream_to, Pid} | Options], Errors) when is_pid(Pid) ->
     verify_options(Options, Errors);
+verify_options([{pool_name, PoolName} | Options], Errors) when is_atom(PoolName) ->
+    verify_options(Options, Errors);
 verify_options([Option | Options], Errors) ->
     verify_options(Options, [Option | Errors]);
 verify_options([], []) ->

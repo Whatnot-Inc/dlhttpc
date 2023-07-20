@@ -38,11 +38,11 @@
 %%         dispatcher pool has been inactive for that period of time. When
 %%         that happens, it is shut down, to be reopened next time.
 -module(dlhttpc_disp).
--export([checkout/7, checkin/1, checkin/2]).
+-export([checkout/8, checkin/1, checkin/2]).
 -define(TABLE, ?MODULE).
 
-checkout(Host, Port, Ssl, MaxConn, ConnTimeout, SocketOpts, CheckoutRetry) ->
-    Info = find_disp({Host, Port, Ssl}, {MaxConn, ConnTimeout, SocketOpts}),
+checkout(Host, Port, Ssl, MaxConn, ConnTimeout, SocketOpts, CheckoutRetry, PoolName) ->
+    Info = find_disp({Host, Port, Ssl, PoolName}, {MaxConn, ConnTimeout, SocketOpts}),
     case checkout(Info, CheckoutRetry) of
         {ok, CheckinReference, {Owner,Socket}} ->
             {ok, {Info,CheckinReference,Owner,Ssl}, Socket};
@@ -84,14 +84,14 @@ find_disp(Key, Args) ->
 %% Wart ahead. Atoms are created dynamically based on the key
 %% to ensure uniqueness of pools.
 %% TODO: optionally use gproc for registration to avoid this?
-start_disp(Key = {Host, Port, Ssl}, Args = {MaxConn,ConnTimeout,SockOpts}) ->
+start_disp(Key = {Host, Port, Ssl, PoolName}, Args = {MaxConn,ConnTimeout,SockOpts}) ->
     {ok, Type} = application:get_env(dlhttpc, restart),
     {ok, Timeout} = application:get_env(dlhttpc, shutdown),
     {ok, X} = application:get_env(dlhttpc, maxr),
     {ok, Y} = application:get_env(dlhttpc, maxt),
     AtomKey = case Ssl of
-        true -> list_to_atom("dispcount_"++Host++integer_to_list(Port)++"_ssl");
-        false -> list_to_atom("dispcount_"++Host++integer_to_list(Port))
+        true -> list_to_atom("dispcount_"++Host++integer_to_list(Port)++atom_to_list(PoolName)++"_ssl");
+        false -> list_to_atom("dispcount_"++Host++integer_to_list(Port)++atom_to_list(PoolName))
     end,
     Res = dispcount:start_dispatch(
             AtomKey,
